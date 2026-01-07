@@ -7,68 +7,93 @@ using UserActivityMonitoringAPI.Services.Interfaces;
 
 namespace UserActivityMonitoringAPI.Services;
 
-public class UserActivityService(ApplicationDbContext context,ILogger<UserActivityService> logger):IUserActivityService
+public class UserActivityService(ApplicationDbContext _context,ILogger<IUserActivityService> _logger) : IUserActivityService
 {
+
+   
     public async Task<UserActivity> AddUserActivity(UserActivity userActivity)
     {
         try
         {
-            context.UserActivities.Add(userActivity);
-            await context.SaveChangesAsync();
-            logger.LogInformation("UserActivity added: {userActivityId}", userActivity.Id);
+            _context.UserActivities.Add(userActivity);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("UserActivity added with Id: {UserActivityId}, UserId: {UserId}, TypeId: {ActivityTypeId}",
+                userActivity.Id, userActivity.Id, userActivity.ActivityTypeId);
+
             return userActivity;
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-           logger.LogError(e, "Error adding UserActivity: {userActivityId}", userActivity.Id);
-           return new UserActivity();
+            _logger.LogError(ex, "Error adding UserActivity for UserId: {UserId}", userActivity.Id);
+            throw;
         }
     }
 
+   
     public async Task<List<UserActivity>> GetAllUserActivity()
     {
-        logger.LogInformation("Getting AllUserActivities");
-        return await context.UserActivities.ToListAsync();
+        _logger.LogInformation("Retrieving all UserActivities");
+        return await _context.UserActivities
+            .Include(ua => ua.ActivityType) 
+            .OrderByDescending(ua => ua.CreatedOn)
+            .ToListAsync();
     }
 
+    // Получение по Id
     public async Task<Response<UserActivity>> GetUserActivity(long id)
     {
         try
         {
-            context.UserActivities.Find(id);
-            logger.LogInformation("Getting UserActivity: {userActivityId}", id);
-            var uActivity = await context.UserActivities.FirstOrDefaultAsync();
-            logger.LogInformation("UserActivity: {userActivityId}", id);
+            var userActivity = await _context.UserActivities
+                .Include(ua => ua.ActivityType)
+                .FirstOrDefaultAsync(ua => ua.Id == id);
 
-            return uActivity == null
-                ? new Response<UserActivity>(HttpStatusCode.InternalServerError, "Some Error!", uActivity)
-                : new Response<UserActivity>(HttpStatusCode.OK, "Found Succesfully!", uActivity);
+            if (userActivity == null)
+            {
+                _logger.LogWarning("UserActivity with Id {UserActivityId} not found", id);
+                return new Response<UserActivity>(HttpStatusCode.NotFound, "UserActivity not found", null);
+            }
+
+            _logger.LogInformation("Found UserActivity with Id: {UserActivityId}", id);
+            return new Response<UserActivity>(HttpStatusCode.OK, "UserActivity found", userActivity);
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-            Console.WriteLine(e);
-            return new Response<UserActivity>(HttpStatusCode.InternalServerError, "Some Error!", null);
+            _logger.LogError(ex, "Error getting UserActivity with Id: {Id}", id);
+            return new Response<UserActivity>(HttpStatusCode.InternalServerError, "Error retrieving UserActivity", null);
         }
     }
 
-    public async Task<Response<string>> UpdateUserActivity(UserActivity userActivity, long id)
+    public async Task<Response<string>> UpdateUserActivity(UserActivity userActivity,long id)
     {
+        if (id != userActivity.Id)
+        {
+            return new Response<string>(HttpStatusCode.BadRequest, "Id in URL does not match Id in body");
+        }
+
         try
         {
-            context.UserActivities.Find(id);
-            logger.LogInformation("Updating UserActivity: {userActivityId}", id);
-            var user=context.UserActivities.Update(userActivity);
-            await context.SaveChangesAsync();
-            logger.LogInformation("UserActivity updated: {userActivityId}", id);
-            return new Response<string>(HttpStatusCode.OK, userActivity.Id.ToString());
-            
-             
-            
+            var existing = await _context.UserActivities.FindAsync(id);
+            if (existing == null)
+            {
+                return new Response<string>(HttpStatusCode.NotFound, "UserActivity not found");
+            }
+
+            // Обновляем только разрешённые поля (Timestamp обычно не меняем)]
+            existing.Id = userActivity.Id;
+            existing.ActivityTypeId = userActivity.ActivityTypeId;
+            existing.ActivityType = userActivity.ActivityType;
+
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("UserActivity updated with Id: {UserActivityId}", id);
+            return new Response<string>(HttpStatusCode.OK, "UserActivity updated successfully");
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-            Console.WriteLine(e);
-            return new Response<string>(HttpStatusCode.InternalServerError, "Some Error!", null);
+            _logger.LogError(ex, "Error updating UserActivity with Id: {Id}", id);
+            return new Response<string>(HttpStatusCode.InternalServerError, "Failed to update UserActivity");
         }
     }
 
@@ -76,17 +101,22 @@ public class UserActivityService(ApplicationDbContext context,ILogger<UserActivi
     {
         try
         {
-          context.UserActivities.Find(id);
-          logger.LogInformation("Deleting UserActivity: {userActivityId}", id);
-          context.UserActivities.Remove(context.UserActivities.Find(id));
-          await context.SaveChangesAsync();
-          logger.LogInformation("UserActivity deleted: {userActivityId}", id);
-          return new Response<string>(HttpStatusCode.OK, "Deleted Succesfully!");
+            var userActivity = await _context.UserActivities.FindAsync(id);
+            if (userActivity == null)
+            {
+                return new Response<string>(HttpStatusCode.NotFound, "UserActivity not found");
+            }
+
+            _context.UserActivities.Remove(userActivity);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("UserActivity deleted with Id: {UserActivityId}", id);
+            return new Response<string>(HttpStatusCode.OK, "UserActivity deleted successfully");
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-            Console.WriteLine(e);
-            return new Response<string>(HttpStatusCode.InternalServerError, "Some Error!", null);
+            _logger.LogError(ex, "Error deleting UserActivity with Id: {Id}", id);
+            return new Response<string>(HttpStatusCode.InternalServerError, "Failed to delete UserActivity");
         }
     }
 }

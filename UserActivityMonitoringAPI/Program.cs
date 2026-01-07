@@ -3,9 +3,11 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Quartz;
 using Serilog;
 using UserActivityMonitoringAPI.Data;
 using UserActivityMonitoringAPI.Entities;
+using UserActivityMonitoringAPI.Jobs;
 using UserActivityMonitoringAPI.Services;
 using UserActivityMonitoringAPI.Services.Interfaces;
 
@@ -34,6 +36,30 @@ var connection = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<ApplicationDbContext>(conf => conf.UseNpgsql(connection));
 builder.Services.AddScoped<IUserActivityService, UserActivityService>();
 builder.Services.AddScoped<IActivityTypeService, ActivityTypeService>();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ICacheService, CacheService>();
+
+var jobKey = new JobKey("ActivityAnalysis" +
+                        "Job");
+
+builder.Services.AddQuartz(q =>
+{
+    q.UseMicrosoftDependencyInjectionJobFactory();
+
+   
+    q.AddJob<ActivityAnalysisJob>(j => j.WithIdentity("ActivityAnalysisJob"));
+
+    q.AddTrigger(t => t
+        .WithIdentity("Every10SecondsTrigger")
+        .ForJob("ActivityAnalysisJob")
+        .WithCronSchedule("*/10 * * * * ?")
+    );
+});
+
+builder.Services.AddQuartzHostedService(options =>
+    options.WaitForJobsToComplete = true);
+
+builder.Services.AddQuartzHostedService(options => options.WaitForJobsToComplete = true);
 
 var app = builder.Build();
 
